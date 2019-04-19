@@ -132,6 +132,9 @@ namespace eosio {
         std::map<string, fc::mutable_variant_object> accounts;
         std::map<string, fc::mutable_variant_object> content;
 
+        std::map<string, fc::mutable_variant_object> account_rate_details;
+        std::map<string, fc::mutable_variant_object> content_rate_details;
+
         transaction_queue trx_queue;
     };
 
@@ -166,7 +169,8 @@ namespace eosio {
             report_hash();
 
             //save the result pack to file
-            save_result();
+            if(dump_calc_data) {
+                save_result(); }
 
             last_calc_block = current_calc_block_num;
             return;
@@ -559,8 +563,7 @@ namespace eosio {
 
         result.result_hash = dp.result_hash;
 
-        if(dump_calc_data)
-            save_detalization(dp);
+        save_detalization(dp);
 
         //update current results
         accounts.clear();
@@ -623,43 +626,38 @@ namespace eosio {
 
         }
 
-        //save social interactions
-        auto filename_si = "soc_interactions_" + std::to_string(dp.current_calc_block) + "_" + dp.result_hash + ".txt";
-        auto path_si = dump_dir.string() + "/" + filename_si;
-        std::remove(path_si.c_str());
-        std::ofstream si_file(path_si, std::ios_base::app | std::ios_base::out);
-        for(auto si : dp.social_relations) {
-            si_file << si->get_name() + ";" +
+        if(dump_calc_data)
+        {
+            //save social interactions
+            auto filename_si = "soc_interactions_" + std::to_string(dp.current_calc_block) + "_" + dp.result_hash + ".txt";
+            auto path_si = dump_dir.string() + "/" + filename_si;
+            std::remove(path_si.c_str());
+            std::ofstream si_file(path_si, std::ios_base::app | std::ios_base::out);
+            for(auto si : dp.social_relations) {
+                si_file << si->get_name() + ";" +
                        si->get_source() + ";" +
                        si->get_target() + ";" +
                        std::to_string(si->get_height()) + ";" +
                        std::to_string(si->get_weight()) + ";" +
                        std::to_string(si->get_reverse_weight()) + "\n";
+            }
+            si_file.close();
         }
-        si_file.close();
 
-        //save calculation details
-        auto filename = "soc_rate_details_" + std::to_string(dp.current_calc_block) + "_" + dp.result_hash + ".txt";
-        auto path = dump_dir.string() + "/" + filename;
-        std::remove(path.c_str());
-        std::ofstream det_file(path, std::ios_base::app | std::ios_base::out);
+        //get account rate details
+        account_rate_details.clear();
+        for(auto acc : dp.activity_details.base_index){
+            string name = acc.first;
+            fc::mutable_variant_object details;
 
-        //account rates sorted by rate desc
-        multimap<double, string> acc_rates;
-        for(auto acc : dp.activity_details.base_index) {
-            //accs.emplace_back(acc.first);
-            acc_rates.insert({dp.get_acc_double_value(acc.first, "social_rate"), acc.first});
-        }
-        for(auto acc = acc_rates.rbegin(); acc != acc_rates.rend(); ++acc){
-            string name = acc->second;
-            auto line = "acc:" + name + " rate:" + dp.get_acc_string_value(name, "social_rate");
-            det_file << line + "\n";
+            details.set("name", name);
+            details.set("social_rate", dp.get_acc_string_value(name, "social_rate"));
 
             if(dp.activity_details.base_index.find(name) != dp.activity_details.base_index.end()){
-                line = "base:" + dp.to_string_10(dp.activity_details.base_index[name]);
-                det_file << line + "\n";
+                details.set("base_social_rate", dp.to_string_10(dp.activity_details.base_index[name]));
             }
 
+            fc::variants contributions;
             if(dp.activity_details.activity_index_contribution.find(name) !=
                dp.activity_details.activity_index_contribution.end()) {
                 //sort upvoters by impact
@@ -674,63 +672,46 @@ namespace eosio {
                     auto impact = item->first;
                     auto upname = item->second;
                     auto dets = dp.activity_details.activity_index_contribution[name][upname];
-                    line = dp.to_string_10(impact) +
-                           ": " + dp.to_string_10(dets.koefficient) +
-                           "*" + dp.to_string_10(dets.rate) + " " +
-                           "agent:" + upname + " ";
+                    
+                    fc::mutable_variant_object contribution;
+                    contribution.set("name", upname);
+                    contribution.set("value", dp.to_string_10(impact));
+                    contribution.set("coefficient", dp.to_string_10(dets.koefficient));
+                    contribution.set("social_rate", dp.to_string_10(dets.rate));
+                                        
                     if(rel_index.find(upname) != rel_index.end()
                        && rel_index[upname].find(name) != rel_index[upname].end()){
-                        line += "cont:" + rel_index[upname][name][0] +
-                                " days:" + dp.to_string_10(stod(rel_index[upname][name][1]) / 86400 / 2) +
-                                " rel_count:" + std::to_string(rel_index[upname].size());
-                    } else {
-                        line += "relations not found";
+                           contribution.set("content", rel_index[upname][name][0]);
+                           contribution.set("days_since_last_interaction", dp.to_string_10(stod(rel_index[upname][name][1]) / 86400 / 2));
+                           contribution.set("relations_count", std::to_string(rel_index[upname].size()));
                     }
 
-                    det_file << line + "\n";
+                    contributions.push_back(contribution);
                 }
             }
 
-//            if(dp.activity_details.stack_contribution.find(name) !=
-//               dp.activity_details.stack_contribution.end()){
-//                line = "stake: ";
-//                for(auto item : dp.activity_details.stack_contribution[name]){
-//                    line += item.first +
-//                            ":" + dp.to_string_10(item.second.koefficient) +
-//                            "*" + dp.to_string_10(item.second.rate) + " ";
-//                }
-//                det_file << line + "\n";
-//            }
+            details.set("contributions", contributions);
 
-            det_file << "\n";
+            account_rate_details[name] = details;
         }
 
         //content rates sorted by rate desc
         multimap<double, string> cont_rates;
         for(auto cont : dp.content) {
-            if(dp.get_cont_string_value(cont.first, "social_rate") == "0")
-                continue;
+            auto name = cont.first;
 
-            //conts.emplace_back(cont.first);
-            cont_rates.insert({dp.get_cont_double_value(cont.first, "social_rate"), cont.first});
-        }
-        for(auto cont = cont_rates.rbegin(); cont != cont_rates.rend(); ++cont) {
-            auto name = cont->second;
-            auto line = "cont:" + name +
-                        " rate:" + dp.get_cont_string_value(name, "social_rate");
+            fc::mutable_variant_object details;
+
+            details.set("name", name);
+            details.set("social_rate", dp.get_cont_string_value(name, "social_rate"));
+            
             if(own_index.find(name) != own_index.end()) {
-                line += " author:" + own_index[name][0] +
-                        " days:" + dp.to_string_10(stod(own_index[name][1]) / 86400 / 2);
-            } else {
-                line += " no author";
+                details.set("author", own_index[name][0]);
+                details.set("days_since_publication", dp.to_string_10(stod(own_index[name][1]) / 86400 / 2));
             }
 
-            det_file << line + "\n";
-
             map<string, vector<string>> upvoters;
-            if(cont_index.find(name) == cont_index.end()){
-                det_file << "upvoters not found \n";
-            } else {
+            if(cont_index.find(name) != cont_index.end()){
                 upvoters = cont_index[name];
             }
 
@@ -747,29 +728,31 @@ namespace eosio {
                                        });
             }
 
+            fc::variants contributions;
+
             for(auto item = upvoters_impact.rbegin(); item != upvoters_impact.rend(); ++item) {
                 auto impact = item->first;
                 auto upname = item->second;
                 auto dets = dp.content_details.activity_index_contribution[name][upname];
-                line = dp.to_string_10(impact) +
-                       ": " + dp.to_string_10(dets.koefficient) +
-                       "*" + dp.to_string_10(dets.rate) + " " +
-                       "agent:" + upname + " ";
+
+                fc::mutable_variant_object contribution;
+                contribution.set("name", upname);
+                contribution.set("value", impact);
+                contribution.set("social_rate", dp.to_string_10(dets.rate));
+                contribution.set("coefficient", dp.to_string_10(dets.koefficient));
                 if(cont_index.find(name) != cont_index.end()
                    && cont_index[name].find(upname) != cont_index[name].end()){
-                    line += " days:" + dp.to_string_10(stod(cont_index[name][upname][1]) / 86400 / 2) +
-                            " rel_count:" + std::to_string(rel_index[upname].size());
-                } else {
-                    line += "relations not found";
+                       contribution.set("days_since_last_interaction", dp.to_string_10(stod(cont_index[name][upname][1]) / 86400 / 2));
+                       contribution.set("relations_count", std::to_string(rel_index[upname].size()));
                 }
 
-                det_file << line + "\n";
+                contributions.push_back(contribution);
             }
 
-            det_file << "\n";
-        }
+            details.set("contributions", contributions);
 
-        det_file.close();
+            content_rate_details[name] = details;
+        }
     }
 
     void uos_rates_impl::save_result()
@@ -1381,6 +1364,63 @@ namespace eosio {
                              }
                          }
                  }});
+
+        app().get_plugin<http_plugin>().add_api(
+                {{
+                         std::string("/v1/uos_rates/get_account_rate_details"),
+                         [this](string,string body,url_response_callback cb)mutable{
+                             try
+                             {
+                                  if (body.empty()) body = "{}";
+                                  auto json = fc::json::from_string(body);
+                                  string account = json["account"].as_string();
+
+                                  if(my->account_rate_details.find(account) == my->account_rate_details.end()){
+                                      cb(200, "{}");
+                                      return;
+                                  }
+
+                                  if (json.get_object().find("pretty") != json.get_object().end() && json["pretty"].as_bool()){
+                                      cb(200, fc::json::to_pretty_string(my->account_rate_details[account]));
+                                  } else {
+                                      cb(200, fc::json::to_string(my->account_rate_details[account]));
+                                  }
+                             }
+                             catch(...)
+                             {
+                                 cb(500, "{\"error\":\"unknown\"}\n");
+                             }
+                         }
+                 }});
+
+        app().get_plugin<http_plugin>().add_api(
+                {{
+                         std::string("/v1/uos_rates/get_content_rate_details"),
+                         [this](string,string body,url_response_callback cb)mutable{
+                             try
+                             {
+                                  if (body.empty()) body = "{}";
+                                  auto json = fc::json::from_string(body);
+                                  string content = json["content"].as_string();
+
+                                  if(my->content_rate_details.find(content) == my->content_rate_details.end()){
+                                      cb(200, "{}");
+                                      return;
+                                  }
+
+                                  if (json.get_object().find("pretty") != json.get_object().end() && json["pretty"].as_bool()){
+                                      cb(200, fc::json::to_pretty_string(my->content_rate_details[content]));
+                                  } else {
+                                      cb(200, fc::json::to_string(my->content_rate_details[content]));
+                                  }
+                             }
+                             catch(...)
+                             {
+                                 cb(500, "{\"error\":\"unknown\"}\n");
+                             }
+                         }
+                 }});
+
     }
 
     void uos_rates::plugin_shutdown() {
