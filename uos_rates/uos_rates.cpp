@@ -597,6 +597,7 @@ namespace eosio {
     }
 
     void uos_rates_impl::save_detalization(uos::data_processor dp) {
+        ilog("SAVE DETALISATION START");
         //index the ownership
         map<string, vector<string>> own_index;
         for(auto relation : dp.social_relations){
@@ -648,6 +649,7 @@ namespace eosio {
         account_rate_details.clear();
         for(auto acc : dp.activity_details.base_index){
             string name = acc.first;
+            ilog("ACCOUNT " + name);
             fc::mutable_variant_object details;
 
             details.set("name", name);
@@ -693,6 +695,7 @@ namespace eosio {
             details.set("contributions", contributions);
 
             account_rate_details[name] = details;
+            ilog("ADDED ACCOUNT " + name);
         }
 
         //content rates sorted by rate desc
@@ -1376,7 +1379,10 @@ namespace eosio {
                                   string account = json["account"].as_string();
 
                                   if(my->account_rate_details.find(account) == my->account_rate_details.end()){
-                                      cb(200, "{}");
+                                      fc::mutable_variant_object reply;
+                                      reply.set("message","account " + account + " not found");
+                                      reply.set("total_accounts", my->account_rate_details.size());
+                                      cb(200, fc::json::to_pretty_string(reply));
                                       return;
                                   }
 

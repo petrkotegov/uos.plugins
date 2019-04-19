@@ -721,9 +721,9 @@ namespace uos {
         for(auto item:default_trust_coef )
         {
             accounts[item.first].set("validity", to_string_10(item.second));
-            ilog("Account: " + item.first + " validity: " + to_string_10(item.second));
+            //ilog("Account: " + item.first + " validity: " + to_string_10(item.second));
         }
-        ilog("Total stake:" + to_string_10(total_stake));
+        //ilog("Total stake:" + to_string_10(total_stake));
     }
 
 
