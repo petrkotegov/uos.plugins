@@ -610,6 +610,7 @@ namespace eosio {
 
         //index relation with last content id and height
         map<string, map<string, vector<string>>> rel_index;
+        map<string, map<string, vector<string>>> rel_back_index;
         map<string, map<string, vector<string>>> cont_index;
         for(auto relation : dp.social_relations){
             if(relation->get_name() != "UPVOTE") continue;
@@ -624,7 +625,7 @@ namespace eosio {
             auto to = own_index[cont][0];
 
             rel_index[from][to] = values;
-
+            rel_back_index[to][from] = values;
         }
 
         if(dump_calc_data)
@@ -648,8 +649,8 @@ namespace eosio {
         //get account rate details
         account_rate_details.clear();
         for(auto acc : dp.activity_details.base_index){
+            
             string name = acc.first;
-            ilog("ACCOUNT " + name);
             fc::mutable_variant_object details;
 
             details.set("name", name);
@@ -659,6 +660,7 @@ namespace eosio {
                 details.set("base_social_rate", dp.to_string_10(dp.activity_details.base_index[name]));
             }
 
+            //contributions from other accounts
             fc::variants contributions;
             if(dp.activity_details.activity_index_contribution.find(name) !=
                dp.activity_details.activity_index_contribution.end()) {
@@ -691,8 +693,45 @@ namespace eosio {
                     contributions.push_back(contribution);
                 }
             }
-
             details.set("contributions", contributions);
+
+            //interactions to other accounts
+            fc::variants interactions;
+            if(rel_back_index.find(name) != rel_back_index.end()){
+                
+                //sort by interaction time
+                multimap<double, string> interactions_by_time;
+                for(auto item : rel_back_index[name]) {
+                    interactions_by_time.insert({
+                        stod(item.second[1]),
+                        item.first
+                    });
+                }
+                for(auto item : interactions_by_time){
+                    auto int_name = item.second;
+                    fc::mutable_variant_object interaction;
+                    interaction.set("name", int_name);
+
+                    if(dp.activity_details.activity_index_contribution.find(int_name) !=
+                       dp.activity_details.activity_index_contribution.end() && 
+                       dp.activity_details.activity_index_contribution[int_name].find(name) !=
+                       dp.activity_details.activity_index_contribution[int_name].end()) {
+                           auto dets = dp.activity_details.activity_index_contribution[int_name][name];
+                           auto koeff = dets.koefficient;
+                           auto rate = dets.rate;
+                           auto impact = koeff * rate;
+                           interaction.set("value", dp.to_string_10(impact));
+                           interaction.set("coefficient", dp.to_string_10(koeff));
+                           interaction.set("social_rate", dp.to_string_10(rate));
+                       }
+                    
+                    interaction.set("content", rel_back_index[name][int_name][0]);
+                    interaction.set("days_since_last_interaction", dp.to_string_10(stod(rel_back_index[name][int_name][1]) / 86400 / 2));
+                    interactions.push_back(interaction);
+                }
+            }
+            details.set("interactions",interactions);
+
 
             account_rate_details[name] = details;
             ilog("ADDED ACCOUNT " + name);
@@ -1382,7 +1421,7 @@ namespace eosio {
                                       fc::mutable_variant_object reply;
                                       reply.set("message","account " + account + " not found");
                                       reply.set("total_accounts", my->account_rate_details.size());
-                                      cb(200, fc::json::to_pretty_string(reply));
+                                      cb(200, fc::json::to_string(reply));
                                       return;
                                   }
 
