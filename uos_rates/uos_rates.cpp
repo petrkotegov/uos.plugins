@@ -611,7 +611,6 @@ namespace eosio {
 
         //index relation with last content id and height
         map<string, map<string, vector<string>>> rel_index;
-        map<string, map<string, vector<string>>> rel_back_index;
         map<string, map<string, vector<string>>> cont_index;
         for(auto relation : dp.social_relations){
             if(relation->get_name() != "UPVOTE") continue;
@@ -626,7 +625,6 @@ namespace eosio {
             auto to = own_index[cont][0];
 
             rel_index[from][to] = values;
-            rel_back_index[to][from] = values;
         }
 
         if(dump_calc_data)
@@ -698,11 +696,11 @@ namespace eosio {
 
             //interactions to other accounts
             fc::variants interactions;
-            if(rel_back_index.find(name) != rel_back_index.end()){
+            if(rel_index.find(name) != rel_index.end()){
                 
                 //sort by interaction time
                 multimap<double, string> interactions_by_time;
-                for(auto item : rel_back_index[name]) {
+                for(auto item : rel_index[name]) {
                     interactions_by_time.insert({
                         stod(item.second[1]),
                         item.first
@@ -726,8 +724,8 @@ namespace eosio {
                            interaction.set("social_rate", dp.to_string_10(rate));
                        }
                     
-                    interaction.set("content", rel_back_index[name][int_name][0]);
-                    interaction.set("days_since_last_interaction", dp.to_string_10(stod(rel_back_index[name][int_name][1]) / 86400 / 2));
+                    interaction.set("content", rel_index[name][int_name][0]);
+                    interaction.set("days_since_last_interaction", dp.to_string_10(stod(rel_index[name][int_name][1]) / 86400 / 2));
                     interactions.push_back(interaction);
                 }
             }
@@ -1419,10 +1417,7 @@ namespace eosio {
                                   string account = json["account"].as_string();
 
                                   if(my->account_rate_details.find(account) == my->account_rate_details.end()){
-                                      fc::mutable_variant_object reply;
-                                      reply.set("message","account " + account + " not found");
-                                      reply.set("total_accounts", my->account_rate_details.size());
-                                      cb(200, fc::json::to_string(reply));
+                                      cb(200, "{}");
                                       return;
                                   }
 
