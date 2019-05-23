@@ -90,13 +90,6 @@ namespace uos {
         void convert_transactions_to_relations();
         vector<std::shared_ptr<singularity::relation_t>> parse_token_transaction(fc::variant trx);
         vector<std::shared_ptr<singularity::relation_t>> parse_social_transaction(fc::variant trx);
-        /**
-         * @brief parse_trust_transaction deprecated
-         * @param trx
-         * @return
-         */
-        vector<std::shared_ptr<singularity::relation_t>> parse_trust_transaction(fc::variant trx);
-
         map<string,vector<p_sing_relation_t>> parse_ext_social_transaction(fc::variant trx);
 
         void add_lost_items(fc::variant trx);
@@ -200,8 +193,6 @@ namespace uos {
                 auto it = common_relations.find("trust");
                 if (it != common_relations.end()) {
                     relations = it->second;
-//                relations = parse_trust_transaction(trx);
-//                trust_relations.insert(trust_relations.end(),relations.begin(), relations.end());
                 }
             }
 
@@ -237,35 +228,6 @@ namespace uos {
         return result;
     }
 
-    vector<std::shared_ptr<singularity::relation_t>> data_processor::parse_trust_transaction(fc::variant trx){
-
-        vector<std::shared_ptr<singularity::relation_t>> result;
-
-        if (trx["action"].as_string() == "socialaction" ) {
-
-            auto block_num = stoi(trx["block_num"].as_string());
-            auto block_height = current_calc_block - block_num;
-
-
-            auto from = trx["data"]["acc"].as_string();
-            auto action_json = trx["data"]["action_json"].as_string();
-
-
-            //TODO::check json is valid; check validate to name
-            if (action_json.find("trust") != std::string::npos ) {
-
-                auto json_data = fc::json::from_string(action_json);
-                auto from = json_data["data"]["account_from"].as_string();
-                auto to = json_data["data"]["account_to"].as_string();
-
-                trust_t trust(from, to, block_height);
-                result.push_back(std::make_shared<trust_t>(trust));
-            }
-        }
-
-        return result;
-    }
-
     map<string,vector<p_sing_relation_t>> data_processor::parse_ext_social_transaction(fc::variant trx)
     {
 
@@ -279,37 +241,35 @@ namespace uos {
                 auto block_num = stoi(trx["block_num"].as_string());
                 auto block_height = current_calc_block - block_num;
 
-
                 auto from = trx["data"]["acc"].as_string();
                 auto action_json = trx["data"]["action_json"].as_string();
 
+                //parse action json
+                auto json_data = fc::json::from_string(action_json);
+                auto interaction = json_data["interaction"].as_string();
+                auto data = json_data["data"];
 
-                //TODO::check json is valid; check validate to name
-                if (action_json.find("trust") != std::string::npos) {
+                if (interaction == "trust") {
 
-                    auto json_data = fc::json::from_string(action_json);
-                    auto from = json_data["data"]["account_from"].as_string();
-                    auto to = json_data["data"]["account_to"].as_string();
+                    auto from = data["account_from"].as_string();
+                    auto to = data["account_to"].as_string();
 
                     trust_t trust(from, to, block_height);
                     trust_result.push_back(std::make_shared<trust_t>(trust));
-                }
+                } else if (interaction == "reference") {
 
-                if (action_json.find("reference") != std::string::npos) {
-
-
-                    auto json_data = fc::json::from_string(action_json);
-                    auto from = json_data["data"]["account_from"].as_string();
-                    auto to = json_data["data"]["account_to"].as_string();
+                    auto from = data["account_from"].as_string();
+                    auto to = data["account_to"].as_string();
 
                     if (reference_trx.insert(from + to).second == false) {
-                        elog(" \n Duplicate  reference transaction: " + to + " pirate: " + from);
+                        //elog(" \n Duplicate  reference transaction: " + to + " pirate: " + from);
                     } else {
                         reference_t reference(from, to, block_height);
                         reference_result.push_back(std::make_shared<reference_t>(reference));
                     }
-
-
+                } else {
+                    elog("interaction not found");
+                    ilog(fc::json::to_string(trx));
                 }
 
                 result.insert(make_pair("trust", trust_result));
@@ -353,18 +313,18 @@ namespace uos {
             }
 
             if(actor_ids.find(to) != actor_ids.end()) {
-                elog("makecontent to actor mismatch " + from + " to " + to);
+                //elog("makecontent to actor mismatch " + from + " to " + to);
                 return result;
             }
 
             if(content_ids.find(from) != content_ids.end()) {
-                elog("makecontent from content mismatch " + from + " to " + to);
+                //elog("makecontent from content mismatch " + from + " to " + to);
                 return result;
             }
 
             if(st_make_id_contents.insert(to).second == false)
             {
-                elog("duplicate makecontent content_id: " + to + " account: "+ from);
+                //elog("duplicate makecontent content_id: " + to + " account: "+ from);
                 return result;
             }
 
@@ -381,12 +341,12 @@ namespace uos {
             auto interaction_type_id = trx["data"]["interaction_type_id"].as_string();
 
             if(actor_ids.find(to) != actor_ids.end()) {
-                elog("usertocont to actor mismatch " + from + " to " + to);
+                //elog("usertocont to actor mismatch " + from + " to " + to);
                 return result;
             }
 
             if(content_ids.find(from) != content_ids.end()) {
-                elog("usertocont from content mismatch " + from + " to " + to);
+                //elog("usertocont from content mismatch " + from + " to " + to);
                 return result;
             }
 
@@ -410,18 +370,18 @@ namespace uos {
             auto to = trx["data"]["content_id"].as_string();
 
             if(actor_ids.find(to) != actor_ids.end()) {
-                elog("makecontorg to actor mismatch " + from + " to " + to);
+                //elog("makecontorg to actor mismatch " + from + " to " + to);
                 return result;
             }
 
             if(content_ids.find(from) != content_ids.end()) {
-                elog("makecontorg from content mismatch " + from + " to " + to);
+                //elog("makecontorg from content mismatch " + from + " to " + to);
                 return result;
             }
 
             if(st_make_id_contents.insert(to).second == false)
             {
-                elog("duplicate makecontorg - content_id:" + to + " account: "+ from);
+                //elog("duplicate makecontorg - content_id:" + to + " account: "+ from);
                 return result;
             }
 
@@ -449,11 +409,11 @@ namespace uos {
             else {
                 if(prev_cumulative_emission.find(to) != prev_cumulative_emission.end())
                 {
-                    elog("makeconent to existing account mismatch" + from + " " + to);
+                    //elog("makeconent to existing account mismatch" + from + " " + to);
                     return;
                 }
                 if(actor_ids.find(to) != actor_ids.end()) {
-                    elog("makecontent to actor mismatch " + from + " to " + to);
+                    //elog("makecontent to actor mismatch " + from + " to " + to);
                     return;
                 }
 
